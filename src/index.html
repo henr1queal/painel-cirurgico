@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Painel Cirúrgico</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #f4f6f8;
+        color: #333;
+      }
+
+      #progress-container {
+        width: 100%;
+        height: 4px;
+        background: #e0e0e0;
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 100;
+      }
+      #progress-bar {
+        height: 100%;
+        background: #0078d4;
+        width: 100%;
+        transition: width linear;
+      }
+
+      .container {
+        padding: 20px;
+        margin-top: 10px;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+        background: #ffffff;
+        padding: 15px;
+        border-radius: 6px;
+        border-left: 5px solid #0078d4;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+      }
+      .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .label {
+        font-weight: bold;
+        color: #555;
+      }
+
+      select {
+        background: #fff;
+        color: #333;
+        border: 1px solid #ccc;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 16px;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      select:focus {
+        border-color: #0078d4;
+      }
+
+      .table-container {
+        background: #ffffff;
+        border-radius: 6px;
+        overflow: hidden;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+        border: 1px solid #e1e4e8;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th {
+        background: #f8f9fa;
+        color: #495057;
+        text-align: left;
+        padding: 16px 15px;
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid #e9ecef;
+      }
+
+      td {
+        padding: 15px;
+        border-bottom: 1px solid #f1f3f5;
+        font-size: 15px;
+        color: #212529;
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      tr:nth-child(even) {
+        background-color: #f8f9fa;
+      }
+
+      tr:hover {
+        background-color: #f1f3f5;
+      }
+
+      .badge {
+        padding: 5px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+        text-transform: uppercase;
+        display: inline-block;
+        min-width: 80px;
+        text-align: center;
+      }
+
+      .badge-ADMITIDO {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+
+      .badge-AGENDADO {
+        background: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeeba;
+      }
+
+      .badge-ALTA {
+        background: #686868;
+        color: #f7f7f7;
+        border: 1px solid #ffeeba;
+      }
+
+      #display-doctor {
+        font-size: 20px;
+        color: #0078d4;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="progress-container">
+      <div id="progress-bar"></div>
+    </div>
+
+    <div class="container">
+      <div class="header">
+        <div class="filter-group">
+          <span class="label">Filtrar Médico:</span>
+          <select id="selectMedico" onchange="manualChange(this.value)">
+            <option value="TODOS">TODOS - Visão Geral</option>
+          </select>
+        </div>
+        <div id="display-doctor">Carregando...</div>
+      </div>
+
+      <div class="table-container">
+        <table id="dataTable">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Reg.</th>
+              <th>Paciente</th>
+              <th>Cirurgia</th>
+              <th>Olho</th>
+              <th>Convênio</th>
+              <th>Lente</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const API_URL = "api.php";
+      const TEMPO_ROTACAO_MS = 10000;
+
+      let doctorsCache = [];
+      let currentIndex = -1;
+      let timerInterval = null;
+      let progressInterval = null;
+
+      async function init() {
+        await loadDoctorList();
+        manualChange("TODOS");
+      }
+
+      async function loadDoctorList() {
+        try {
+          const response = await fetch(`${API_URL}?action=medicos`);
+          const list = await response.json();
+          doctorsCache = list;
+
+          const select = document.getElementById("selectMedico");
+          select.innerHTML =
+            '<option value="TODOS">TODOS - Visão Geral</option>';
+
+          list.forEach((doctor) => {
+            const option = document.createElement("option");
+            option.value = doctor.PSV_COD;
+            option.text = doctor.psv_apel;
+            select.appendChild(option);
+          });
+        } catch (error) {
+          console.error("Erro ao carregar médicos", error);
+        }
+      }
+
+      async function loadData(codMedico, nomeMedico) {
+        document.getElementById("selectMedico").value = codMedico;
+        document.getElementById("display-doctor").innerText = nomeMedico;
+
+        resetProgressBar();
+
+        try {
+          const response = await fetch(
+            `${API_URL}?action=dados&cod=${codMedico}`
+          );
+          const data = await response.json();
+
+          const tbody = document.querySelector("#dataTable tbody");
+          tbody.innerHTML = "";
+
+          if (data.length === 0) {
+            tbody.innerHTML =
+              '<tr><td colspan="8" style="text-align:center; padding:40px; color:#999; font-style: italic;">Nenhum registro encontrado para hoje.</td></tr>';
+            return;
+          }
+
+          data.forEach((row) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td>${row.DATA}</td>
+                <td>${row.REG}</td>
+                <td>${row.PACIENTE}</td>
+                <td>${row.CIRURGIA}</td>
+                <td>${row.OLHO}</td>
+                <td>${row.CONVENIO}</td>
+                <td>${row.LENTE}</td>
+                <td><span class="badge badge-${row.STATUS}">${row.STATUS}</span></td>
+            `;
+            tbody.appendChild(tr);
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      function startCicle() {
+        if (timerInterval) clearInterval(timerInterval);
+
+        timerInterval = setInterval(() => {
+          currentIndex++;
+
+          if (currentIndex >= doctorsCache.length) {
+            currentIndex = -1;
+          }
+
+          if (currentIndex === -1) {
+            loadData("TODOS", "VISÃO GERAL (TODOS)");
+          } else {
+            const doctor = doctorsCache[currentIndex];
+            loadData(doctor.PSV_COD, doctor.psv_apel);
+          }
+        }, TEMPO_ROTACAO_MS);
+      }
+
+      function resetProgressBar() {
+        const bar = document.getElementById("progress-bar");
+
+        bar.style.transition = "none";
+        bar.style.width = "100%";
+
+        void bar.offsetWidth;
+
+        bar.style.transition = `width ${TEMPO_ROTACAO_MS}ms linear`;
+        bar.style.width = "0%";
+      }
+
+      function manualChange(cod) {
+        if (timerInterval) clearInterval(timerInterval);
+
+        if (cod === "TODOS") {
+          currentIndex = -1;
+          loadData("TODOS", "VISÃO GERAL (TODOS)");
+        } else {
+          currentIndex = doctorsCache.findIndex((m) => m.PSV_COD == cod);
+          const med = doctorsCache[currentIndex];
+          loadData(cod, med.psv_apel);
+        }
+
+        startCicle();
+      }
+
+      init();
+
+      setInterval(loadDoctorList, 120000);
+    </script>
+  </body>
+</html>
